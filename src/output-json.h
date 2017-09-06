@@ -24,20 +24,28 @@
 #ifndef __OUTPUT_JSON_H__
 #define __OUTPUT_JSON_H__
 
-void TmModuleOutputJsonRegister (void);
-
-#ifdef HAVE_LIBJANSSON
-
 #include "suricata-common.h"
 #include "util-buffer.h"
 #include "util-logopenfile.h"
 
+void OutputJsonRegister(void);
+
+#ifdef HAVE_LIBJANSSON
+/* helper struct for OutputJSONMemBufferCallback */
+typedef struct OutputJSONMemBufferWrapper_ {
+    MemBuffer **buffer; /**< buffer to use & expand as needed */
+    size_t expand_by;   /**< expand by this size */
+} OutputJSONMemBufferWrapper;
+
+int OutputJSONMemBufferCallback(const char *str, size_t size, void *data);
+
+void JsonAddVars(const Packet *p, const Flow *f, json_t *js);
 void CreateJSONFlowId(json_t *js, const Flow *f);
 void JsonTcpFlags(uint8_t flags, json_t *js);
-json_t *CreateJSONHeader(Packet *p, int direction_sensative, char *event_type);
-json_t *CreateJSONHeaderWithTxId(Packet *p, int direction_sensitive, char *event_type, uint32_t tx_id);
-TmEcode OutputJSON(json_t *js, void *data, uint64_t *count);
-int OutputJSONBuffer(json_t *js, LogFileCtx *file_ctx, MemBuffer *buffer);
+void JsonFiveTuple(const Packet *, int, json_t *);
+json_t *CreateJSONHeader(const Packet *p, int direction_sensative, const char *event_type);
+json_t *CreateJSONHeaderWithTxId(const Packet *p, int direction_sensitive, const char *event_type, uint64_t tx_id);
+int OutputJSONBuffer(json_t *js, LogFileCtx *file_ctx, MemBuffer **buffer);
 OutputCtx *OutputJsonInitCtx(ConfNode *);
 
 enum JsonFormat { COMPACT, INDENT };
@@ -55,6 +63,8 @@ typedef struct AlertJsonThread_ {
     /** LogFileCtx has the pointer to the file and a mutex to allow multithreading */
     LogFileCtx *file_ctx;
 } AlertJsonThread;
+
+json_t *SCJsonBool(int val);
 
 #endif /* HAVE_LIBJANSSON */
 

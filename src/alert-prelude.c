@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2014 Open Information Security Foundation
+/* Copyright (C) 2007-2017 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -58,26 +58,15 @@
 
 #include "stream.h"
 
+#include "alert-prelude.h"
+
 #ifndef PRELUDE
 
 /* Handle the case where no PRELUDE support is compiled in. */
 
-static TmEcode AlertPreludeThreadInit(ThreadVars *t, void *initdata, void **data)
+void AlertPreludeRegister(void)
 {
-    SCLogDebug("Can't init Prelude output thread - Prelude support was disabled during build.");
-    return TM_ECODE_FAILED;
-}
-
-static TmEcode AlertPreludeThreadDeinit(ThreadVars *t, void *data)
-{
-    return TM_ECODE_FAILED;
-}
-
-void TmModuleAlertPreludeRegister (void)
-{
-    tmm_modules[TMM_ALERTPRELUDE].name = "AlertPrelude";
-    tmm_modules[TMM_ALERTPRELUDE].ThreadInit = AlertPreludeThreadInit;
-    tmm_modules[TMM_ALERTPRELUDE].ThreadDeinit = AlertPreludeThreadDeinit;
+    SCLogDebug("Can't register Prelude output thread - Prelude support was disabled during build.");
 }
 
 #else /* implied we do have PRELUDE support */
@@ -115,6 +104,7 @@ typedef struct AlertPreludeCtx_ {
 typedef struct AlertPreludeThread_ {
     /** Pointer to the global context */
     AlertPreludeCtx *ctx;
+    idmef_analyzer_t *analyzer;
 } AlertPreludeThread;
 
 
@@ -131,24 +121,56 @@ static int SetupAnalyzer(idmef_analyzer_t *analyzer)
     SCEnter();
 
     ret = idmef_analyzer_new_model(analyzer, &string);
-    if (unlikely(ret < 0))
+    if (unlikely(ret < 0)) {
+        SCLogDebug("%s: error creating analyzer model: %s.",
+                prelude_strsource(ret), prelude_strerror(ret));
         SCReturnInt(ret);
-    prelude_string_set_constant(string, ANALYZER_MODEL);
+    }
+    ret = prelude_string_set_constant(string, ANALYZER_MODEL);
+    if (unlikely(ret < 0)) {
+        SCLogDebug("%s: error setting analyzer model: %s.",
+                prelude_strsource(ret), prelude_strerror(ret));
+        SCReturnInt(ret);
+    }
 
     ret = idmef_analyzer_new_class(analyzer, &string);
-    if (unlikely(ret < 0))
+    if (unlikely(ret < 0)) {
+        SCLogDebug("%s: error creating analyzer class: %s.",
+                prelude_strsource(ret), prelude_strerror(ret));
         SCReturnInt(ret);
-    prelude_string_set_constant(string, ANALYZER_CLASS);
+    }
+    ret = prelude_string_set_constant(string, ANALYZER_CLASS);
+    if (unlikely(ret < 0)) {
+        SCLogDebug("%s: error setting analyzer class: %s.",
+                prelude_strsource(ret), prelude_strerror(ret));
+        SCReturnInt(ret);
+    }
 
     ret = idmef_analyzer_new_manufacturer(analyzer, &string);
-    if (unlikely(ret < 0))
+    if (unlikely(ret < 0)) {
+        SCLogDebug("%s: error creating analyzer manufacturer: %s.",
+                prelude_strsource(ret), prelude_strerror(ret));
         SCReturnInt(ret);
-    prelude_string_set_constant(string, ANALYZER_MANUFACTURER);
+    }
+    ret = prelude_string_set_constant(string, ANALYZER_MANUFACTURER);
+    if (unlikely(ret < 0)) {
+        SCLogDebug("%s: error setting analyzer manufacturer: %s.",
+                prelude_strsource(ret), prelude_strerror(ret));
+        SCReturnInt(ret);
+    }
 
     ret = idmef_analyzer_new_version(analyzer, &string);
-    if (unlikely(ret < 0))
+    if (unlikely(ret < 0)) {
+        SCLogDebug("%s: error creating analyzer version: %s.",
+                prelude_strsource(ret), prelude_strerror(ret));
         SCReturnInt(ret);
-    prelude_string_set_constant(string, VERSION);
+    }
+    ret = prelude_string_set_constant(string, VERSION);
+    if (unlikely(ret < 0)) {
+        SCLogDebug("%s: error setting analyzer version: %s.",
+                prelude_strsource(ret), prelude_strerror(ret));
+        SCReturnInt(ret);
+    }
 
     SCReturnInt(0);
 }
@@ -174,12 +196,18 @@ static int EventToImpact(const PacketAlert *pa, const Packet *p, idmef_alert_t *
     SCEnter();
 
     ret = idmef_alert_new_assessment(alert, &assessment);
-    if (unlikely(ret < 0))
+    if (unlikely(ret < 0)) {
+        SCLogDebug("%s: error creating assessment: %s.",
+                prelude_strsource(ret), prelude_strerror(ret));
         SCReturnInt(ret);
+    }
 
     ret = idmef_assessment_new_impact(assessment, &impact);
-    if (unlikely(ret < 0))
+    if (unlikely(ret < 0)) {
+        SCLogDebug("%s: error creating assessment impact: %s.",
+                prelude_strsource(ret), prelude_strerror(ret));
         SCReturnInt(ret);
+    }
 
     if ( (unsigned int)pa->s->prio < mid_priority )
         severity = IDMEF_IMPACT_SEVERITY_HIGH;
@@ -195,7 +223,10 @@ static int EventToImpact(const PacketAlert *pa, const Packet *p, idmef_alert_t *
 
     idmef_impact_set_severity(impact, severity);
 
-    if (PACKET_TEST_ACTION(p, ACTION_DROP)) {
+    if (PACKET_TEST_ACTION(p, ACTION_DROP) ||
+        PACKET_TEST_ACTION(p, ACTION_REJECT) ||
+        PACKET_TEST_ACTION(p, ACTION_REJECT_DST) ||
+        PACKET_TEST_ACTION(p, ACTION_REJECT_BOTH) ) {
         idmef_action_t *action;
 
         ret = idmef_action_new(&action);
@@ -224,7 +255,8 @@ static int EventToImpact(const PacketAlert *pa, const Packet *p, idmef_alert_t *
  *
  * \return 0 if ok
  */
-static int EventToSourceTarget(const Packet *p, idmef_alert_t *alert)
+static int EventToSourceTarget(const PacketAlert *pa, const Packet *p,
+                               idmef_alert_t *alert)
 {
     int ret;
     idmef_node_t *node;
@@ -236,6 +268,8 @@ static int EventToSourceTarget(const Packet *p, idmef_alert_t *alert)
     static char saddr[128], daddr[128];
     uint8_t ip_vers;
     uint8_t ip_proto;
+    uint16_t sp, dp;
+    uint8_t invert = 0;
 
     SCEnter();
 
@@ -245,16 +279,45 @@ static int EventToSourceTarget(const Packet *p, idmef_alert_t *alert)
     if ( ! IPH_IS_VALID(p) )
         SCReturnInt(0);
 
+    if (pa->s->flags & SIG_FLAG_HAS_TARGET) {
+        if (pa->s->flags & SIG_FLAG_SRC_IS_TARGET) {
+            invert = 1;
+        } else {
+            invert = 0;
+        }
+    } else {
+        invert = 0;
+    }
+
     if (PKT_IS_IPV4(p)) {
         ip_vers = 4;
         ip_proto = IPV4_GET_RAW_IPPROTO(p->ip4h);
-        PrintInet(AF_INET, (const void *)GET_IPV4_SRC_ADDR_PTR(p), saddr, sizeof(saddr));
-        PrintInet(AF_INET, (const void *)GET_IPV4_DST_ADDR_PTR(p), daddr, sizeof(daddr));
+        if (invert) {
+            PrintInet(AF_INET, (const void *)GET_IPV4_DST_ADDR_PTR(p), saddr, sizeof(saddr));
+            PrintInet(AF_INET, (const void *)GET_IPV4_SRC_ADDR_PTR(p), daddr, sizeof(daddr));
+            sp = p->dp;
+            dp = p->sp;
+        } else {
+            PrintInet(AF_INET, (const void *)GET_IPV4_SRC_ADDR_PTR(p), saddr, sizeof(saddr));
+            PrintInet(AF_INET, (const void *)GET_IPV4_DST_ADDR_PTR(p), daddr, sizeof(daddr));
+            sp = p->sp;
+            dp = p->dp;
+
+        }
     } else if (PKT_IS_IPV6(p)) {
         ip_vers = 6;
         ip_proto = IPV6_GET_L4PROTO(p);
-        PrintInet(AF_INET6, (const void *)GET_IPV6_SRC_ADDR(p), saddr, sizeof(saddr));
-        PrintInet(AF_INET6, (const void *)GET_IPV6_DST_ADDR(p), daddr, sizeof(daddr));
+        if (invert) {
+            PrintInet(AF_INET6, (const void *)GET_IPV6_DST_ADDR(p), saddr, sizeof(saddr));
+            PrintInet(AF_INET6, (const void *)GET_IPV6_SRC_ADDR(p), daddr, sizeof(daddr));
+            sp = p->dp;
+            dp = p->sp;
+        } else {
+            PrintInet(AF_INET6, (const void *)GET_IPV6_SRC_ADDR(p), saddr, sizeof(saddr));
+            PrintInet(AF_INET6, (const void *)GET_IPV6_DST_ADDR(p), daddr, sizeof(daddr));
+            sp = p->sp;
+            dp = p->dp;
+        }
     } else
         SCReturnInt(0);
 
@@ -267,7 +330,7 @@ static int EventToSourceTarget(const Packet *p, idmef_alert_t *alert)
         SCReturnInt(ret);
 
     if ( p->tcph || p->udph )
-        idmef_service_set_port(service, p->sp);
+        idmef_service_set_port(service, sp);
 
     idmef_service_set_ip_version(service, ip_vers);
     idmef_service_set_iana_protocol_number(service, ip_proto);
@@ -295,7 +358,7 @@ static int EventToSourceTarget(const Packet *p, idmef_alert_t *alert)
         SCReturnInt(ret);
 
     if ( p->tcph || p->udph )
-        idmef_service_set_port(service, p->dp);
+        idmef_service_set_port(service, dp);
 
     idmef_service_set_ip_version(service, ip_vers);
     idmef_service_set_iana_protocol_number(service, ip_proto);
@@ -434,7 +497,17 @@ static int PacketToDataV4(const Packet *p, const PacketAlert *pa, idmef_alert_t 
  */
 static int PacketToDataV6(const Packet *p, const PacketAlert *pa, idmef_alert_t *alert)
 {
-    return 0;
+    SCEnter();
+
+    AddIntData(alert, "ip_ver", IPV6_GET_VER(p));
+    AddIntData(alert, "ip_class", IPV6_GET_CLASS(p));
+    AddIntData(alert, "ip_flow", IPV6_GET_FLOW(p));
+    AddIntData(alert, "ip_nh", IPV6_GET_NH(p));
+    AddIntData(alert, "ip_plen", IPV6_GET_PLEN(p));
+    AddIntData(alert, "ip_hlim", IPV6_GET_HLIM(p));
+    AddIntData(alert, "ip_proto", IPV6_GET_L4PROTO(p));
+
+    SCReturnInt(0);
 }
 
 
@@ -463,29 +536,50 @@ static int PacketToData(const Packet *p, const PacketAlert *pa, idmef_alert_t *a
             PacketToDataV6(p, pa, alert);
 
         if ( PKT_IS_TCP(p) ) {
-            AddIntData(alert, "tcp_seq", ntohl(p->tcph->th_seq));
-            AddIntData(alert, "tcp_ack", ntohl(p->tcph->th_ack));
+            AddIntData(alert, "tcp_seq", TCP_GET_SEQ(p));
+            AddIntData(alert, "tcp_ack", TCP_GET_ACK(p));
 
-            AddIntData(alert, "tcp_off", TCP_GET_RAW_OFFSET(p->tcph));
-            AddIntData(alert, "tcp_res", TCP_GET_RAW_X2(p->tcph));
-            AddIntData(alert, "tcp_flags", p->tcph->th_flags);
+            AddIntData(alert, "tcp_off", TCP_GET_OFFSET(p));
+            AddIntData(alert, "tcp_res", TCP_GET_X2(p));
+            AddIntData(alert, "tcp_flags", TCP_GET_FLAGS(p));
 
-            AddIntData(alert, "tcp_win", ntohs(p->tcph->th_win));
-            AddIntData(alert, "tcp_sum", ntohs(p->tcph->th_sum));
-            AddIntData(alert, "tcp_urp", ntohs(p->tcph->th_urp));
-
+            AddIntData(alert, "tcp_win", TCP_GET_WINDOW(p));
+            AddIntData(alert, "tcp_sum", TCP_GET_SUM(p));
+            AddIntData(alert, "tcp_urp", TCP_GET_URG_POINTER(p));
+            if (p->tcpvars.ts_val != 0) {
+                AddIntData(alert, "tcp_tsval", TCP_GET_TSVAL(p));
+            }
+            if (p->tcpvars.ts_ecr != 0) {
+                AddIntData(alert, "tcp_tsecr", TCP_GET_TSECR(p));
+            }
+            if (p->tcph != NULL) {
+                AddIntData(alert, "tcp_wscale", TCP_GET_WSCALE(p));
+            }
+            if (TCP_HAS_SACKOK(p)) {
+                AddIntData(alert, "tcp_sackok", TCP_GET_SACKOK(p));
+            }
+            if (TCP_HAS_SACK(p)) {
+                AddIntData(alert, "tcp_sack_cnt", TCP_GET_SACK_CNT(p));
+            }
+            AddIntData(alert, "tcp_hlen", TCP_GET_HLEN(p));
         }
 
         else if ( PKT_IS_UDP(p) ) {
-            AddIntData(alert, "udp_len", ntohs(p->udph->uh_len));
-            AddIntData(alert, "udp_sum", ntohs(p->udph->uh_sum));
+            AddIntData(alert, "udp_len", UDP_GET_LEN(p));
+            AddIntData(alert, "udp_sum", UDP_GET_SUM(p));
         }
 
         else if ( PKT_IS_ICMPV4(p) ) {
-            AddIntData(alert, "icmp_type", p->icmpv4h->type);
-            AddIntData(alert, "icmp_code", p->icmpv4h->code);
-            AddIntData(alert, "icmp_sum", ntohs(p->icmpv4h->checksum));
+            AddIntData(alert, "icmp_type", ICMPV4_GET_TYPE(p));
+            AddIntData(alert, "icmp_code", ICMPV4_GET_CODE(p));
+            AddIntData(alert, "icmp_sum", ICMPV4_GET_RAW_CSUM(p));
 
+        }
+
+        else if ( PKT_IS_ICMPV6(p) ) {
+            AddIntData(alert, "icmp_type", ICMPV6_GET_TYPE(p));
+            AddIntData(alert, "icmp_code", ICMPV6_GET_CODE(p));
+            AddIntData(alert, "icmp_csum", ICMPV6_GET_RAW_CSUM(p));
         }
     }
 
@@ -583,7 +677,7 @@ static int EventToReference(const PacketAlert *pa, const Packet *p, idmef_classi
     SCReturnInt(0);
 }
 
-static int PreludePrintStreamSegmentCallback(const Packet *p, void *data, uint8_t *buf, uint32_t buflen)
+static int PreludePrintStreamSegmentCallback(const Packet *p, void *data, const uint8_t *buf, uint32_t buflen)
 {
     int ret;
 
@@ -600,15 +694,15 @@ static int PreludePrintStreamSegmentCallback(const Packet *p, void *data, uint8_
  *
  * \return TM_ECODE_OK if ok, else TM_ECODE_FAILED
  */
-static TmEcode AlertPreludeThreadInit(ThreadVars *t, void *initdata, void **data)
+static TmEcode AlertPreludeThreadInit(ThreadVars *t, const void *initdata, void **data)
 {
     AlertPreludeThread *aun;
 
     SCEnter();
 
-    if(unlikely(initdata == NULL))
-    {
-        SCLogDebug("Error getting context for Prelude.  \"initdata\" argument NULL");
+    if (unlikely(initdata == NULL)) {
+        SCLogError(SC_ERR_INITIALIZATION,
+                   "Error getting context for Prelude.  \"initdata\" argument NULL");
         SCReturnInt(TM_ECODE_FAILED);
     }
 
@@ -617,8 +711,27 @@ static TmEcode AlertPreludeThreadInit(ThreadVars *t, void *initdata, void **data
         SCReturnInt(TM_ECODE_FAILED);
     memset(aun, 0, sizeof(AlertPreludeThread));
 
-    /** Use the Ouput Context */
+    /* Use the Ouput Context */
     aun->ctx = ((OutputCtx *)initdata)->data;
+
+    /* Create a per-thread idmef analyzer */
+    if (unlikely(idmef_analyzer_new(&aun->analyzer) < 0)) {
+        SCLogError(SC_ERR_INITIALIZATION,
+                   "Error creating idmef analyzer for Prelude.");
+
+        SCFree(aun);
+        SCReturnInt(TM_ECODE_FAILED);
+    }
+
+    /* Setup the per-thread idmef analyzer */
+    if (unlikely(SetupAnalyzer(aun->analyzer) < 0)) {
+        SCLogError(SC_ERR_INITIALIZATION,
+                   "Error configuring idmef analyzer for Prelude.");
+
+        idmef_analyzer_destroy(aun->analyzer);
+        SCFree(aun);
+        SCReturnInt(TM_ECODE_FAILED);
+    }
 
     *data = (void *)aun;
     SCReturnInt(TM_ECODE_OK);
@@ -641,6 +754,7 @@ static TmEcode AlertPreludeThreadDeinit(ThreadVars *t, void *data)
     }
 
     /* clear memory */
+    idmef_analyzer_destroy(aun->analyzer);
     memset(aun, 0, sizeof(AlertPreludeThread));
     SCFree(aun);
 
@@ -703,7 +817,12 @@ static OutputCtx *AlertPreludeInitCtx(ConfNode *conf)
         SCReturnPtr(NULL, "AlertPreludeCtx");
     }
 
-    SetupAnalyzer(prelude_client_get_analyzer(client));
+    ret = SetupAnalyzer(prelude_client_get_analyzer(client));
+    if (ret < 0) {
+        SCLogDebug("Unable to setup prelude client analyzer.");
+        prelude_client_destroy(client, PRELUDE_CLIENT_EXIT_STATUS_SUCCESS);
+        SCReturnPtr(NULL, "AlertPreludeCtx");
+    }
 
     ret = prelude_client_start(client);
     if (unlikely(ret < 0)) {
@@ -823,7 +942,7 @@ static int AlertPreludeLogger(ThreadVars *tv, void *thread_data, const Packet *p
     if (unlikely(ret < 0))
         goto err;
 
-    ret = EventToSourceTarget(p, alert);
+    ret = EventToSourceTarget(pa, p, alert);
     if (unlikely(ret < 0))
         goto err;
 
@@ -855,7 +974,7 @@ static int AlertPreludeLogger(ThreadVars *tv, void *thread_data, const Packet *p
         goto err;
     idmef_alert_set_create_time(alert, time);
 
-    idmef_alert_set_analyzer(alert, idmef_analyzer_ref(prelude_client_get_analyzer(apn->ctx->client)), IDMEF_LIST_PREPEND);
+    idmef_alert_set_analyzer(alert, idmef_analyzer_ref(apn->analyzer), IDMEF_LIST_PREPEND);
 
     /* finally, send event */
     prelude_client_send_idmef(apn->ctx->client, idmef);
@@ -869,17 +988,10 @@ err:
     SCReturnInt(TM_ECODE_FAILED);
 }
 
-void TmModuleAlertPreludeRegister (void)
+void AlertPreludeRegister (void)
 {
-    tmm_modules[TMM_ALERTPRELUDE].name = "AlertPrelude";
-    tmm_modules[TMM_ALERTPRELUDE].ThreadInit = AlertPreludeThreadInit;
-    tmm_modules[TMM_ALERTPRELUDE].Func = NULL;
-    tmm_modules[TMM_ALERTPRELUDE].ThreadDeinit = AlertPreludeThreadDeinit;
-    tmm_modules[TMM_ALERTPRELUDE].cap_flags = 0;
-    tmm_modules[TMM_ALERTPRELUDE].flags = TM_FLAG_LOGAPI_TM;
-
-    OutputRegisterPacketModule("AlertPrelude", "alert-prelude", AlertPreludeInitCtx,
-            AlertPreludeLogger, AlertPreludeCondition);
+    OutputRegisterPacketModule(LOGGER_PRELUDE, "AlertPrelude", "alert-prelude",
+        AlertPreludeInitCtx, AlertPreludeLogger, AlertPreludeCondition,
+        AlertPreludeThreadInit, AlertPreludeThreadDeinit, NULL);
 }
 #endif /* PRELUDE */
-

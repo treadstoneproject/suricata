@@ -32,6 +32,9 @@
 #include "pkt-var.h"
 
 #ifdef DEBUG
+void PacketQueueValidateDebug(PacketQueue *q);
+void PacketQueueValidate(PacketQueue *q);
+
 void PacketQueueValidateDebug(PacketQueue *q)
 {
     SCLogDebug("q->len %u, q->top %p, q->bot %p", q->len, q->top, q->bot);
@@ -175,12 +178,11 @@ Packet *PacketDequeue (PacketQueue *q)
 
     /* pull the bottom packet from the queue */
     p = q->bot;
+
     /* Weird issue: sometimes it looks that two thread arrive
      * here at the same time so the bot ptr is NULL (only on OS X?)
      */
-    if (p == NULL) {
-        return NULL;
-    }
+    BUG_ON (p == NULL);
 
     /* more packets in queue */
     if (q->bot->prev != NULL) {
@@ -193,6 +195,8 @@ Packet *PacketDequeue (PacketQueue *q)
     }
 
     //PacketQueueValidateDebug(q);
+    p->next = NULL;
+    p->prev = NULL;
     return p;
 }
 

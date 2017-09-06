@@ -37,7 +37,6 @@
 #include "util-debug.h"
 
 #include "decode-ipv4.h"
-#include "detect.h"
 #include "detect-parse.h"
 #include "detect-engine.h"
 #include "detect-engine-mpm.h"
@@ -73,7 +72,7 @@ typedef struct LogDropLogThread_ {
  *
  * \return TM_ECODE_OK on success
  */
-static TmEcode LogDropLogThreadInit(ThreadVars *t, void *initdata, void **data)
+static TmEcode LogDropLogThreadInit(ThreadVars *t, const void *initdata, void **data)
 {
     if(initdata == NULL) {
         SCLogDebug("Error getting context for LogDropLog. \"initdata\" argument NULL");
@@ -224,30 +223,34 @@ static int LogDropLogNetFilter (ThreadVars *tv, const Packet *p, void *data)
 
     switch (proto) {
         case IPPROTO_TCP:
-            fprintf(dlt->file_ctx->fp, " SPT=%"PRIu16" DPT=%"PRIu16" "
-                    "SEQ=%"PRIu32" ACK=%"PRIu32" WINDOW=%"PRIu32"",
-                    GET_TCP_SRC_PORT(p), GET_TCP_DST_PORT(p), TCP_GET_SEQ(p),
-                    TCP_GET_ACK(p), TCP_GET_WINDOW(p));
-            fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_SYN(p) ? " SYN" : "");
-            fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_ACK(p) ? " ACK" : "");
-            fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_PUSH(p) ? " PSH" : "");
-            fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_RST(p) ? " RST" : "");
-            fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_URG(p) ? " URG" : "");
-            fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_FIN(p) ? " FIN" : "");
-            fprintf(dlt->file_ctx->fp, " RES=0x%02"PRIu8" URGP=%"PRIu16"",
-                    TCP_GET_RAW_X2(p->tcph), TCP_GET_URG_POINTER(p));
+            if (PKT_IS_TCP(p)) {
+                fprintf(dlt->file_ctx->fp, " SPT=%"PRIu16" DPT=%"PRIu16" "
+                        "SEQ=%"PRIu32" ACK=%"PRIu32" WINDOW=%"PRIu32"",
+                        GET_TCP_SRC_PORT(p), GET_TCP_DST_PORT(p), TCP_GET_SEQ(p),
+                        TCP_GET_ACK(p), TCP_GET_WINDOW(p));
+                fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_SYN(p) ? " SYN" : "");
+                fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_ACK(p) ? " ACK" : "");
+                fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_PUSH(p) ? " PSH" : "");
+                fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_RST(p) ? " RST" : "");
+                fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_URG(p) ? " URG" : "");
+                fprintf(dlt->file_ctx->fp, TCP_ISSET_FLAG_FIN(p) ? " FIN" : "");
+                fprintf(dlt->file_ctx->fp, " RES=0x%02"PRIu8" URGP=%"PRIu16"",
+                        TCP_GET_RAW_X2(p->tcph), TCP_GET_URG_POINTER(p));
+            }
             break;
         case IPPROTO_UDP:
-            fprintf(dlt->file_ctx->fp, " SPT=%"PRIu16" DPT=%"PRIu16""
-                    " LEN=%"PRIu16"", UDP_GET_SRC_PORT(p),
-                    UDP_GET_DST_PORT(p), UDP_GET_LEN(p));
+            if (PKT_IS_UDP(p)) {
+                fprintf(dlt->file_ctx->fp, " SPT=%"PRIu16" DPT=%"PRIu16""
+                        " LEN=%"PRIu16"", UDP_GET_SRC_PORT(p),
+                        UDP_GET_DST_PORT(p), UDP_GET_LEN(p));
+            }
             break;
         case IPPROTO_ICMP:
             if (PKT_IS_ICMPV4(p)) {
                 fprintf(dlt->file_ctx->fp, " TYPE=%"PRIu8" CODE=%"PRIu8""
                         " ID=%"PRIu16" SEQ=%"PRIu16"", ICMPV4_GET_TYPE(p),
                         ICMPV4_GET_CODE(p), ICMPV4_GET_ID(p), ICMPV4_GET_SEQ(p));
-            } else if(PKT_IS_ICMPV6(p)) {
+            } else if (PKT_IS_ICMPV6(p)) {
                 fprintf(dlt->file_ctx->fp, " TYPE=%"PRIu8" CODE=%"PRIu8""
                         " ID=%"PRIu16" SEQ=%"PRIu16"", ICMPV6_GET_TYPE(p),
                         ICMPV6_GET_CODE(p), ICMPV6_GET_ID(p), ICMPV6_GET_SEQ(p));
@@ -289,14 +292,12 @@ static int LogDropCondition(ThreadVars *tv, const Packet *p)
 
     if (p->flow != NULL) {
         int ret = FALSE;
-        FLOWLOCK_RDLOCK(p->flow);
         if (p->flow->flags & FLOW_ACTION_DROP) {
             if (PKT_IS_TOSERVER(p) && !(p->flow->flags & FLOW_TOSERVER_DROP_LOGGED))
                 ret = TRUE;
             else if (PKT_IS_TOCLIENT(p) && !(p->flow->flags & FLOW_TOCLIENT_DROP_LOGGED))
                 ret = TRUE;
         }
-        FLOWLOCK_UNLOCK(p->flow);
         return ret;
     } else if (PACKET_TEST_ACTION(p, ACTION_DROP)) {
         return TRUE;
@@ -322,14 +323,12 @@ static int LogDropLogger(ThreadVars *tv, void *thread_data, const Packet *p)
         return -1;
 
     if (p->flow) {
-        FLOWLOCK_RDLOCK(p->flow);
         if (p->flow->flags & FLOW_ACTION_DROP) {
             if (PKT_IS_TOSERVER(p) && !(p->flow->flags & FLOW_TOSERVER_DROP_LOGGED))
                 p->flow->flags |= FLOW_TOSERVER_DROP_LOGGED;
             else if (PKT_IS_TOCLIENT(p) && !(p->flow->flags & FLOW_TOCLIENT_DROP_LOGGED))
                 p->flow->flags |= FLOW_TOCLIENT_DROP_LOGGED;
         }
-        FLOWLOCK_UNLOCK(p->flow);
     }
     return 0;
 }
@@ -349,7 +348,7 @@ static void LogDropLogExitPrintStats(ThreadVars *tv, void *data)
 #ifdef UNITTESTS
 
 /** \brief test if the action is drop then packet should be logged */
-int LogDropLogTest01()
+static int LogDropLogTest01(void)
 {
     int result = 0;
     EngineModeSetIPS();
@@ -414,7 +413,7 @@ int LogDropLogTest01()
 }
 
 /** \brief test if the action is alert then packet shouldn't be logged */
-int LogDropLogTest02()
+static int LogDropLogTest02(void)
 {
     int result = 0;
     EngineModeSetIPS();
@@ -483,25 +482,18 @@ int LogDropLogTest02()
  */
 static void LogDropLogRegisterTests(void)
 {
-    UtRegisterTest("LogDropLogTest01", LogDropLogTest01, 1);
-    UtRegisterTest("LogDropLogTest02", LogDropLogTest02, 1);
+    UtRegisterTest("LogDropLogTest01", LogDropLogTest01);
+    UtRegisterTest("LogDropLogTest02", LogDropLogTest02);
 }
 #endif
 
 /** \brief function to register the drop log module */
-void TmModuleLogDropLogRegister (void)
+void LogDropLogRegister (void)
 {
-
-    tmm_modules[TMM_LOGDROPLOG].name = MODULE_NAME;
-    tmm_modules[TMM_LOGDROPLOG].ThreadInit = LogDropLogThreadInit;
-    tmm_modules[TMM_LOGDROPLOG].ThreadExitPrintStats = LogDropLogExitPrintStats;
-    tmm_modules[TMM_LOGDROPLOG].ThreadDeinit = LogDropLogThreadDeinit;
+    OutputRegisterPacketModule(LOGGER_DROP, MODULE_NAME, "drop",
+        LogDropLogInitCtx, LogDropLogger, LogDropCondition,
+        LogDropLogThreadInit, LogDropLogThreadDeinit, LogDropLogExitPrintStats);
 #ifdef UNITTESTS
-    tmm_modules[TMM_LOGDROPLOG].RegisterTests = LogDropLogRegisterTests;
+    LogDropLogRegisterTests();
 #endif
-    tmm_modules[TMM_LOGDROPLOG].cap_flags = 0;
-    tmm_modules[TMM_LOGDROPLOG].flags = TM_FLAG_LOGAPI_TM;
-
-    OutputRegisterPacketModule(MODULE_NAME, "drop", LogDropLogInitCtx,
-            LogDropLogger, LogDropCondition);
 }

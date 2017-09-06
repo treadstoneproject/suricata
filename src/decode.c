@@ -51,6 +51,7 @@
 #include "suricata.h"
 #include "conf.h"
 #include "decode.h"
+#include "decode-teredo.h"
 #include "util-debug.h"
 #include "util-mem.h"
 #include "app-layer-detect-proto.h"
@@ -109,9 +110,15 @@ void PacketFree(Packet *p)
 void PacketDecodeFinalize(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p)
 {
 
-    if (p->flags & PKT_IS_INVALID)
+    if (p->flags & PKT_IS_INVALID) {
         StatsIncr(tv, dtv->counter_invalid);
-
+        int i = 0;
+        for (i = 0; i < p->events.cnt; i++) {
+            if (EVENT_IS_DECODER_PACKET_ERROR(p->events.events[i])) {
+                StatsIncr(tv, dtv->counter_invalid_events[p->events.events[i]]);
+            }
+        }
+    }
 #ifdef __SC_CUDA_SUPPORT__
     if (dtv->cuda_vars.mpm_is_cuda)
         CudaBufferPacket(&dtv->cuda_vars, p);
@@ -341,7 +348,9 @@ Packet *PacketDefragPktSetup(Packet *parent, uint8_t *pkt, uint16_t len, uint8_t
         p->root = parent;
 
     /* copy packet and set lenght, proto */
-    PacketCopyData(p, pkt, len);
+    if (pkt && len) {
+        PacketCopyData(p, pkt, len);
+    }
     p->recursion_level = parent->recursion_level; /* NOT incremented */
     p->ts.tv_sec = parent->ts.tv_sec;
     p->ts.tv_usec = parent->ts.tv_usec;
@@ -372,6 +381,23 @@ void PacketDefragPktSetupParent(Packet *parent)
      * is the packet we will now run through the system separately. We do
      * check it against the ip/port/other header checks though */
     DecodeSetNoPayloadInspectionFlag(parent);
+}
+
+void PacketBypassCallback(Packet *p)
+{
+    /* Don't try to bypass if flow is already out or
+     * if we have failed to do it once */
+    int state = SC_ATOMIC_GET(p->flow->flow_state);
+    if ((state == FLOW_STATE_LOCAL_BYPASSED) ||
+           (state == FLOW_STATE_CAPTURE_BYPASSED)) {
+        return;
+    }
+
+    if (p->BypassPacketsFlow && p->BypassPacketsFlow(p)) {
+        FlowUpdateState(p->flow, FLOW_STATE_CAPTURE_BYPASSED);
+    } else {
+        FlowUpdateState(p->flow, FLOW_STATE_LOCAL_BYPASSED);
+    }
 }
 
 void DecodeRegisterPerfCounters(DecodeThreadVars *dtv, ThreadVars *tv)
@@ -405,6 +431,11 @@ void DecodeRegisterPerfCounters(DecodeThreadVars *dtv, ThreadVars *tv)
     dtv->counter_erspan = StatsRegisterMaxCounter("decoder.erspan", tv);
     dtv->counter_flow_memcap = StatsRegisterCounter("flow.memcap", tv);
 
+    dtv->counter_flow_tcp = StatsRegisterCounter("flow.tcp", tv);
+    dtv->counter_flow_udp = StatsRegisterCounter("flow.udp", tv);
+    dtv->counter_flow_icmp4 = StatsRegisterCounter("flow.icmpv4", tv);
+    dtv->counter_flow_icmp6 = StatsRegisterCounter("flow.icmpv6", tv);
+
     dtv->counter_defrag_ipv4_fragments =
         StatsRegisterCounter("defrag.ipv4.fragments", tv);
     dtv->counter_defrag_ipv4_reassembled =
@@ -419,6 +450,13 @@ void DecodeRegisterPerfCounters(DecodeThreadVars *dtv, ThreadVars *tv)
         StatsRegisterCounter("defrag.ipv6.timeouts", tv);
     dtv->counter_defrag_max_hit =
         StatsRegisterCounter("defrag.max_frag_hits", tv);
+
+    int i = 0;
+    for (i = 0; i < DECODE_EVENT_PACKET_MAX; i++) {
+        BUG_ON(i != (int)DEvents[i].code);
+        dtv->counter_invalid_events[i] = StatsRegisterCounter(
+                DEvents[i].event_name, tv);
+    }
 
     return;
 }
@@ -517,7 +555,7 @@ inline int PacketSetData(Packet *p, uint8_t *pktdata, int pktlen)
 
 const char *PktSrcToString(enum PktSrcEnum pkt_src)
 {
-    char *pkt_src_str = "<unknown>";
+    const char *pkt_src_str = "<unknown>";
     switch (pkt_src) {
         case PKT_SRC_WIRE:
             pkt_src_str = "wire/pcap";
@@ -539,6 +577,9 @@ const char *PktSrcToString(enum PktSrcEnum pkt_src)
             break;
         case PKT_SRC_STREAM_TCP_STREAM_END_PSEUDO:
             pkt_src_str = "stream";
+            break;
+        case PKT_SRC_STREAM_TCP_DETECTLOG_FLUSH:
+            pkt_src_str = "stream (detect/log)";
             break;
         case PKT_SRC_FFR:
             pkt_src_str = "stream (flow timeout)";
@@ -566,6 +607,11 @@ void CaptureStatsSetup(ThreadVars *tv, CaptureStats *s)
     s->counter_ips_blocked = StatsRegisterCounter("ips.blocked", tv);
     s->counter_ips_rejected = StatsRegisterCounter("ips.rejected", tv);
     s->counter_ips_replaced = StatsRegisterCounter("ips.replaced", tv);
+}
+
+void DecodeGlobalConfig(void)
+{
+    DecodeTeredoConfig();
 }
 
 /**

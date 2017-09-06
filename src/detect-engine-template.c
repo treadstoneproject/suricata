@@ -15,30 +15,44 @@
  * 02110-1301, USA.
  */
 
+/*
+ * TODO: Update your name below and in detect-engine-template.h.
+ * TODO: Update description in the \file section below.
+ * TODO: Remove SCLogNotice statements or convert to debug.
+ */
+
+/**
+ * \file
+ *
+ * \author FirstName LastName <yourname@domain>
+ *
+ * Implement buffer inspection on the decoded application layer
+ * content buffers.
+ */
+
 #include "suricata-common.h"
 #include "stream.h"
 #include "detect-engine-content-inspection.h"
-
+#include "detect-engine-template.h"
 #include "app-layer-template.h"
 
-int DetectEngineInspectTemplateBuffer(ThreadVars *tv, DetectEngineCtx *de_ctx,
-    DetectEngineThreadCtx *det_ctx, Signature *s, Flow *f, uint8_t flags,
-    void *alstate, void *txv, uint64_t tx_id)
+int DetectEngineInspectTemplateBuffer(ThreadVars *tv,
+    DetectEngineCtx *de_ctx, DetectEngineThreadCtx *det_ctx,
+    const Signature *s, const SigMatchData *smd,
+    Flow *f, uint8_t flags, void *alstate, void *txv, uint64_t tx_id)
 {
     TemplateTransaction *tx = (TemplateTransaction *)txv;
     int ret = 0;
 
     if (flags & STREAM_TOSERVER && tx->request_buffer != NULL) {
-        ret = DetectEngineContentInspection(de_ctx, det_ctx, s,
-            s->sm_lists[DETECT_SM_LIST_TEMPLATE_BUFFER_MATCH], f,
-            tx->request_buffer, tx->request_buffer_len, 0,
-            DETECT_ENGINE_CONTENT_INSPECTION_MODE_TEMPLATE_BUFFER, NULL);
+        ret = DetectEngineContentInspection(de_ctx, det_ctx, s, smd,
+            f, tx->request_buffer, tx->request_buffer_len, 0,
+            DETECT_ENGINE_CONTENT_INSPECTION_MODE_STATE, NULL);
     }
     else if (flags & STREAM_TOCLIENT && tx->response_buffer != NULL) {
-        ret = DetectEngineContentInspection(de_ctx, det_ctx, s,
-            s->sm_lists[DETECT_SM_LIST_TEMPLATE_BUFFER_MATCH], f,
-            tx->response_buffer, tx->response_buffer_len, 0,
-            DETECT_ENGINE_CONTENT_INSPECTION_MODE_TEMPLATE_BUFFER, NULL);
+        ret = DetectEngineContentInspection(de_ctx, det_ctx, s, smd,
+            f, tx->response_buffer, tx->response_buffer_len, 0,
+            DETECT_ENGINE_CONTENT_INSPECTION_MODE_STATE, NULL);
     }
 
     SCLogNotice("Returning %d.", ret);
