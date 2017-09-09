@@ -26,6 +26,7 @@
 #include <yaml.h>
 #include "suricata-common.h"
 #include "conf.h"
+#include "conf-yaml-loader.h"
 #include "util-path.h"
 #include "util-debug.h"
 #include "util-unittest.h"
@@ -167,6 +168,7 @@ ConfYamlParse(yaml_parser_t *parser, ConfNode *parent, int inseq)
 {
     ConfNode *node = parent;
     yaml_event_t event;
+    memset(&event, 0, sizeof(event));
     int done = 0;
     int state = 0;
     int seq_idx = 0;
@@ -192,8 +194,8 @@ ConfYamlParse(yaml_parser_t *parser, ConfNode *parent, int inseq)
                 fprintf(stderr, "%%YAML 1.1\n---\n\n");
                 goto fail;
             }
-            int major = event.data.document_start.version_directive->major;
-            int minor = event.data.document_start.version_directive->minor;
+            int major = ver->major;
+            int minor = ver->minor;
             if (!(major == YAML_VERSION_MAJOR && minor == YAML_VERSION_MINOR)) {
                 fprintf(stderr, "ERROR: Invalid YAML version.  Must be 1.1\n");
                 goto fail;
@@ -474,6 +476,7 @@ ConfYamlLoadFileWithPrefix(const char *filename, const char *prefix)
     }
 
     struct stat stat_buf;
+    /* coverity[toctou] */
     if (stat(filename, &stat_buf) == 0) {
         if (stat_buf.st_mode & S_IFDIR) {
             SCLogError(SC_ERR_FATAL, "yaml argument is not a file but a directory: %s. "
@@ -482,6 +485,7 @@ ConfYamlLoadFileWithPrefix(const char *filename, const char *prefix)
         }
     }
 
+    /* coverity[toctou] */
     infile = fopen(filename, "r");
     if (infile == NULL) {
         SCLogError(SC_ERR_FATAL, "failed to open file: %s: %s", filename,
@@ -868,7 +872,7 @@ ConfYamlOverrideTest(void)
         "  child1:\n"
         "    key: value\n"
         ;
-    char *value;
+    const char *value;
 
     ConfCreateContextBackup();
     ConfInit();
@@ -915,7 +919,7 @@ ConfYamlOverrideFinalTest(void)
     if (ConfYamlLoadString(config, strlen(config)) != 0)
         return 0;
 
-    char *default_log_dir;
+    const char *default_log_dir;
 
     if (!ConfGet("default-log-dir", &default_log_dir))
         return 0;
@@ -936,14 +940,14 @@ void
 ConfYamlRegisterTests(void)
 {
 #ifdef UNITTESTS
-    UtRegisterTest("ConfYamlSequenceTest", ConfYamlSequenceTest, 1);
-    UtRegisterTest("ConfYamlLoggingOutputTest", ConfYamlLoggingOutputTest, 1);
-    UtRegisterTest("ConfYamlNonYamlFileTest", ConfYamlNonYamlFileTest, 1);
-    UtRegisterTest("ConfYamlBadYamlVersionTest", ConfYamlBadYamlVersionTest, 1);
+    UtRegisterTest("ConfYamlSequenceTest", ConfYamlSequenceTest);
+    UtRegisterTest("ConfYamlLoggingOutputTest", ConfYamlLoggingOutputTest);
+    UtRegisterTest("ConfYamlNonYamlFileTest", ConfYamlNonYamlFileTest);
+    UtRegisterTest("ConfYamlBadYamlVersionTest", ConfYamlBadYamlVersionTest);
     UtRegisterTest("ConfYamlSecondLevelSequenceTest",
-        ConfYamlSecondLevelSequenceTest, 1);
-    UtRegisterTest("ConfYamlFileIncludeTest", ConfYamlFileIncludeTest, 1);
-    UtRegisterTest("ConfYamlOverrideTest", ConfYamlOverrideTest, 1);
-    UtRegisterTest("ConfYamlOverrideFinalTest", ConfYamlOverrideFinalTest, 1);
+                   ConfYamlSecondLevelSequenceTest);
+    UtRegisterTest("ConfYamlFileIncludeTest", ConfYamlFileIncludeTest);
+    UtRegisterTest("ConfYamlOverrideTest", ConfYamlOverrideTest);
+    UtRegisterTest("ConfYamlOverrideFinalTest", ConfYamlOverrideFinalTest);
 #endif /* UNITTESTS */
 }

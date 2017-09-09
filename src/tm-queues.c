@@ -33,26 +33,16 @@
 static uint16_t tmq_id = 0;
 static Tmq tmqs[TMQ_MAX_QUEUES];
 
-Tmq* TmqAlloc(void)
-{
-    Tmq *q = SCMalloc(sizeof(Tmq));
-    if (unlikely(q == NULL))
-        goto error;
-
-    memset(q, 0, sizeof(Tmq));
-    return q;
-
-error:
-    return NULL;
-}
-
-Tmq* TmqCreateQueue(char *name)
+Tmq *TmqCreateQueue(const char *name)
 {
     if (tmq_id >= TMQ_MAX_QUEUES)
         goto error;
 
     Tmq *q = &tmqs[tmq_id];
-    q->name = name;
+    q->name = SCStrdup(name);
+    if (q->name == NULL)
+        goto error;
+
     q->id = tmq_id++;
     /* for cuda purposes */
     q->q_type = 0;
@@ -65,7 +55,7 @@ error:
     return NULL;
 }
 
-Tmq* TmqGetQueueByName(char *name)
+Tmq* TmqGetQueueByName(const char *name)
 {
     uint16_t i;
 
@@ -90,6 +80,12 @@ void TmqDebugList(void)
 
 void TmqResetQueues(void)
 {
+    uint16_t i;
+    for (i = 0; i < TMQ_MAX_QUEUES; i++) {
+        if (tmqs[i].name) {
+            SCFree(tmqs[i].name);
+        }
+    }
     memset(&tmqs, 0x00, sizeof(tmqs));
     tmq_id = 0;
 }
