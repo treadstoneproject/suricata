@@ -20,6 +20,7 @@
  *
  * \author Victor Julien <victor@inliniac.net>
  */
+#include <stdbool.h>
 
 #ifndef __DECODE_IPV6_H__
 #define __DECODE_IPV6_H__

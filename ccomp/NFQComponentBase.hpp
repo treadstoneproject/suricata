@@ -13,7 +13,7 @@
 #ifndef CCOMP_NFQ_COMPONENT_BASE_HPP
 
 #ifdef __cplusplus
-extend "C" {
+extern "C" {
 #endif 
 
 

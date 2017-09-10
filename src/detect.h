@@ -422,7 +422,7 @@ typedef struct Signature_ {
     DetectProto proto;
 
     /** classification id **/
-    uint8_t class;
+    uint8_t class_;
 
     /** ipv4 match arrays */
     uint16_t addr_dst_match4_cnt;

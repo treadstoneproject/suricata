@@ -121,7 +121,7 @@ static int DetectClasstypeSetup(DetectEngineCtx *de_ctx, Signature *s, const cha
         goto error;
     }
 
-    if ((s->class > 0) || (s->class_msg != NULL))
+    if ((s->class_ > 0) || (s->class_msg != NULL))
     {
         SCLogError(SC_ERR_INVALID_RULE_ARGUMENT, "duplicated 'classtype' keyword detected");
         goto error;
@@ -129,7 +129,7 @@ static int DetectClasstypeSetup(DetectEngineCtx *de_ctx, Signature *s, const cha
 
     /* if we have retrieved the classtype, assign the message to be displayed
      * for this Signature by fast.log, if a Packet matches this Signature */
-    s->class = ct->classtype_id;
+    s->class_ = ct->classtype_id;
     s->class_msg = ct->classtype_desc;
 
     /* if a priority keyword has appeared before the classtype, s->prio would
