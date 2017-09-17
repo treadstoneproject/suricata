@@ -35,14 +35,16 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <linux/limits.h>
-#include <pthread.h>
 #include <signal.h>
-
 #define TRUE   1
 #define FALSE  0
 
 #define _GNU_SOURCE
+
 #define __USE_GNU
+#include <sched.h>
+#include <pthread.h>
+
 
 //#if HAVE_CONFIG_H
 #include "config.h"
