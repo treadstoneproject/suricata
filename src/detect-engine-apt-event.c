@@ -48,7 +48,7 @@ int DetectEngineAptEventInspect(ThreadVars *tv,
     decoder_events = AppLayerParserGetEventsByTx(f->proto, alproto, alstate, tx_id);
     if (decoder_events == NULL)
         goto end;
-
+/*
     for (sm = s->sm_lists[DETECT_SM_LIST_APP_EVENT]; sm != NULL; sm = sm->next) {
         aled = (DetectAppLayerEventData *)sm->ctx;
         KEYWORD_PROFILING_START;
@@ -60,15 +60,15 @@ int DetectEngineAptEventInspect(ThreadVars *tv,
         KEYWORD_PROFILING_END(det_ctx, sm->type, 0);
         goto end;
     }
-
+*/
     r = 1;
 
  end:
     if (r == 1) {
         return DETECT_ENGINE_INSPECT_SIG_MATCH;
     } else {
-        if (AppLayerParserGetStateProgress(f->proto, alproto, tx, flags) ==
-            AppLayerParserGetStateProgressCompletionStatus(f->proto, alproto, flags))
+        if (AppLayerParserGetStateProgress(f->proto, alproto, tx, flags) /*==
+            AppLayerParserGetStateProgressCompletionStatus(f->proto, alproto, flags)*/)
         {
             return DETECT_ENGINE_INSPECT_SIG_CANT_MATCH;
         } else {

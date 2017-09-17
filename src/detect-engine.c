@@ -995,6 +995,8 @@ static int DetectEngineReloadThreads(DetectEngineCtx *new_de_ctx)
 static DetectEngineCtx *DetectEngineCtxInitReal(int minimal, const char *prefix)
 {
     DetectEngineCtx *de_ctx;
+    
+    SCLogDebug("DetectEngineCtxInitialReal...");
 
     de_ctx = SCMalloc(sizeof(DetectEngineCtx));
     if (unlikely(de_ctx == NULL))

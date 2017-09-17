@@ -376,14 +376,14 @@ static int LogFilestoreLogger(ThreadVars *tv, void *thread_data, const Packet *p
 
         if (SC_ATOMIC_GET(filestore_open_file_cnt) < FileGetMaxOpenFiles()) {
             SC_ATOMIC_ADD(filestore_open_file_cnt, 1);
-            ff->fd = open(filename, O_CREAT | O_TRUNC | O_NOFOLLOW | O_WRONLY, 0644);
+            ff->fd = open(filename, O_CREAT | O_TRUNC/* | O_NOFOLLOW | O_WRONLY*/, 0644);
             if (ff->fd == -1) {
                 SCLogDebug("failed to create file");
                 return -1;
             }
             file_fd = ff->fd;
         } else {
-            file_fd = open(filename, O_CREAT | O_TRUNC | O_NOFOLLOW | O_WRONLY, 0644);
+            file_fd = open(filename, O_CREAT | O_TRUNC/* | O_NOFOLLOW | O_WRONLY*/, 0644);
             if (file_fd == -1) {
                 SCLogDebug("failed to create file");
                 return -1;
@@ -395,7 +395,7 @@ static int LogFilestoreLogger(ThreadVars *tv, void *thread_data, const Packet *p
     /* we can get called with a NULL ffd when we need to close */
     } else if (data != NULL) {
         if (ff->fd == -1) {
-            file_fd = open(filename, O_APPEND | O_NOFOLLOW | O_WRONLY);
+            file_fd = open(filename, O_APPEND /*| O_NOFOLLOW | O_WRONLY*/);
             if (file_fd == -1) {
                 SCLogDebug("failed to open file %s: %s", filename, strerror(errno));
                 return -1;

@@ -30,15 +30,23 @@
 #define DBG_PERF
 #endif
 
+#include <errno.h>
+#include <inttypes.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <linux/limits.h>
+#include <pthread.h>
+#include <signal.h>
+
 #define TRUE   1
 #define FALSE  0
 
 #define _GNU_SOURCE
 #define __USE_GNU
 
-#if HAVE_CONFIG_H
-#include <config.h>
-#endif
+//#if HAVE_CONFIG_H
+#include "config.h"
+//#endif
 
 #ifndef CLS
 #warning "L1 cache line size not detected during build. Assuming 64 bytes."

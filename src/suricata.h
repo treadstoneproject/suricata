@@ -80,6 +80,8 @@
 
 #define DEFAULT_CONF_FILE CONFIG_DIR "/suricata.yaml"
 
+#define LOCAL_STATE_DIR "/etc"
+
 #define DEFAULT_PID_DIR LOCAL_STATE_DIR "/run/"
 #define DEFAULT_PID_BASENAME "suricata.pid"
 #define DEFAULT_PID_FILENAME DEFAULT_PID_DIR DEFAULT_PID_BASENAME
