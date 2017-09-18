@@ -330,7 +330,7 @@ static int HashTableTestAdd01 (void)
     if (ht == NULL)
         goto end;
 
-    int r = HashTableAdd(ht, "test", 0);
+    int r = HashTableAdd(ht, (char *)"test", 0);
     if (r != 0)
         goto end;
 
@@ -366,15 +366,15 @@ static int HashTableTestFull01 (void)
     if (ht == NULL)
         goto end;
 
-    int r = HashTableAdd(ht, "test", 4);
+    int r = HashTableAdd(ht, (char *)"test", 4);
     if (r != 0)
         goto end;
 
-    char *rp = HashTableLookup(ht, "test", 4);
+    char *rp = HashTableLookup(ht, (char *)"test", 4);
     if (rp == NULL)
         goto end;
 
-    r = HashTableRemove(ht, "test", 4);
+    r = HashTableRemove(ht, (char *)"test", 4);
     if (r != 0)
         goto end;
 
@@ -392,15 +392,15 @@ static int HashTableTestFull02 (void)
     if (ht == NULL)
         goto end;
 
-    int r = HashTableAdd(ht, "test", 4);
+    int r = HashTableAdd(ht, (char *)"test", 4);
     if (r != 0)
         goto end;
 
-    char *rp = HashTableLookup(ht, "test", 4);
+    char *rp = HashTableLookup(ht, (char *)"test", 4);
     if (rp == NULL)
         goto end;
 
-    r = HashTableRemove(ht, "test2", 5);
+    r = HashTableRemove(ht, (char *)"test2", 5);
     if (r == 0)
         goto end;
 
@@ -415,18 +415,18 @@ end:
 void HashTableRegisterTests(void)
 {
 #ifdef UNITTESTS
-    UtRegisterTest("HashTableTestInit01", HashTableTestInit01, 1);
-    UtRegisterTest("HashTableTestInit02", HashTableTestInit02, 1);
-    UtRegisterTest("HashTableTestInit03", HashTableTestInit03, 1);
-    UtRegisterTest("HashTableTestInit04", HashTableTestInit04, 1);
-    UtRegisterTest("HashTableTestInit05", HashTableTestInit05, 1);
-    UtRegisterTest("HashTableTestInit06", HashTableTestInit06, 1);
+    UtRegisterTest("HashTableTestInit01", HashTableTestInit01);
+    UtRegisterTest("HashTableTestInit02", HashTableTestInit02);
+    UtRegisterTest("HashTableTestInit03", HashTableTestInit03);
+    UtRegisterTest("HashTableTestInit04", HashTableTestInit04);
+    UtRegisterTest("HashTableTestInit05", HashTableTestInit05);
+    UtRegisterTest("HashTableTestInit06", HashTableTestInit06);
 
-    UtRegisterTest("HashTableTestAdd01", HashTableTestAdd01, 1);
-    UtRegisterTest("HashTableTestAdd02", HashTableTestAdd02, 1);
+    UtRegisterTest("HashTableTestAdd01", HashTableTestAdd01);
+    UtRegisterTest("HashTableTestAdd02", HashTableTestAdd02);
 
-    UtRegisterTest("HashTableTestFull01", HashTableTestFull01, 1);
-    UtRegisterTest("HashTableTestFull02", HashTableTestFull02, 1);
+    UtRegisterTest("HashTableTestFull01", HashTableTestFull01);
+    UtRegisterTest("HashTableTestFull02", HashTableTestFull02);
 #endif
 }
 

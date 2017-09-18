@@ -56,6 +56,8 @@ typedef enum {
     SC_LOG_WARNING,
     SC_LOG_NOTICE,
     SC_LOG_INFO,
+    SC_LOG_PERF,
+    SC_LOG_CONFIG,
     SC_LOG_DEBUG,
     SC_LOG_LEVEL_MAX,
 } SCLogLevel;
@@ -125,6 +127,9 @@ typedef struct SCLogOPIfaceCtx_ {
     /* the output file descriptor for the above file */
     FILE * file_d;
 
+    /* registered to be set on a file rotation signal */
+    int rotation_flag;
+
     /* the facility code if the interface is SC_LOG_IFACE_SYSLOG */
     int facility;
 
@@ -133,6 +138,9 @@ typedef struct SCLogOPIfaceCtx_ {
 
     /* override for the global_log_format(currently not used) */
     const char *log_format;
+
+    /* Mutex used for locking around rotate/write to a file. */
+    SCMutex fp_mutex;
 
     struct SCLogOPIfaceCtx_ *next;
 } SCLogOPIfaceCtx;
@@ -143,16 +151,16 @@ typedef struct SCLogOPIfaceCtx_ {
  */
 typedef struct SCLogInitData_ {
     /* startup message */
-    char *startup_message;
+    const char *startup_message;
 
     /* the log level */
     SCLogLevel global_log_level;
 
     /* the log format */
-    char *global_log_format;
+    const char *global_log_format;
 
     /* output filter */
-    char *op_filter;
+    const char *op_filter;
 
     /* list of output interfaces to be used */
     SCLogOPIfaceCtx *op_ifaces;
@@ -198,44 +206,41 @@ extern int sc_log_module_initialized;
 
 extern int sc_log_module_cleaned;
 
-
-#define SCLog(x, ...)                                                           \
+#define SCLog(x, file, func, line, ...)                                         \
     do {                                                                        \
         if (sc_log_global_log_level >= x &&                                     \
                (sc_log_fg_filters_present == 0 ||                               \
-                SCLogMatchFGFilterWL(__FILE__, __FUNCTION__, __LINE__) == 1 ||  \
-                SCLogMatchFGFilterBL(__FILE__, __FUNCTION__, __LINE__) == 1) && \
+                SCLogMatchFGFilterWL(file, func, line) == 1 ||                  \
+                SCLogMatchFGFilterBL(file, func, line) == 1) &&                 \
                (sc_log_fd_filters_present == 0 ||                               \
-                SCLogMatchFDFilter(__FUNCTION__) == 1))                         \
+                SCLogMatchFDFilter(func) == 1))                                 \
         {                                                                       \
-            char _sc_log_msg[SC_LOG_MAX_LOG_MSG_LEN] = "";                      \
+            char _sc_log_msg[SC_LOG_MAX_LOG_MSG_LEN];                           \
                                                                                 \
-            snprintf(_sc_log_msg, SC_LOG_MAX_LOG_MSG_LEN, __VA_ARGS__);         \
+            int _sc_log_ret = snprintf(_sc_log_msg, SC_LOG_MAX_LOG_MSG_LEN, __VA_ARGS__);   \
+            if (_sc_log_ret == SC_LOG_MAX_LOG_MSG_LEN)                          \
+                _sc_log_msg[SC_LOG_MAX_LOG_MSG_LEN - 1] = '\0';                 \
                                                                                 \
-            SCLogMessage(x,                                                     \
-                    __FILE__,                                                   \
-                    __LINE__,                                                   \
-                    __FUNCTION__, SC_OK, _sc_log_msg);                          \
+            SCLogMessage(x, file, line, func, SC_OK, _sc_log_msg);              \
         }                                                                       \
     } while(0)
 
-#define SCLogErr(x, err, ...)                                                   \
+#define SCLogErr(x, file, func, line, err, ...)                                 \
     do {                                                                        \
         if (sc_log_global_log_level >= x &&                                     \
                (sc_log_fg_filters_present == 0 ||                               \
-                SCLogMatchFGFilterWL(__FILE__, __FUNCTION__, __LINE__) == 1 ||  \
-                SCLogMatchFGFilterBL(__FILE__, __FUNCTION__, __LINE__) == 1) && \
+                SCLogMatchFGFilterWL(file, func, line) == 1 ||                  \
+                SCLogMatchFGFilterBL(file, func, line) == 1) &&                 \
                (sc_log_fd_filters_present == 0 ||                               \
-                SCLogMatchFDFilter(__FUNCTION__) == 1))                         \
+                SCLogMatchFDFilter(func) == 1))                                 \
         {                                                                       \
-            char _sc_log_msg[SC_LOG_MAX_LOG_MSG_LEN] = "";                      \
+            char _sc_log_msg[SC_LOG_MAX_LOG_MSG_LEN];                           \
                                                                                 \
-            snprintf(_sc_log_msg, SC_LOG_MAX_LOG_MSG_LEN, __VA_ARGS__);         \
+            int _sc_log_ret = snprintf(_sc_log_msg, SC_LOG_MAX_LOG_MSG_LEN, __VA_ARGS__);   \
+            if (_sc_log_ret == SC_LOG_MAX_LOG_MSG_LEN)                          \
+                _sc_log_msg[SC_LOG_MAX_LOG_MSG_LEN - 1] = '\0';                 \
                                                                                 \
-            SCLogMessage(x,                                                     \
-                    __FILE__,                                                   \
-                    __LINE__,                                                   \
-                    __FUNCTION__, err, _sc_log_msg);                            \
+            SCLogMessage(x, file, line, func, err, _sc_log_msg);                \
         }                                                                       \
     } while(0)
 
@@ -244,14 +249,25 @@ extern int sc_log_module_cleaned;
  *
  * \retval ... Takes as argument(s), a printf style format message
  */
-#define SCLogInfo(...) SCLog(SC_LOG_INFO, __VA_ARGS__)
+#define SCLogInfo(...) SCLog(SC_LOG_INFO, \
+        __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
+#define SCLogInfoRaw(file, func, line, ...) SCLog(SC_LOG_INFO, \
+        (file), (func), (line), __VA_ARGS__)
+
+#define SCLogConfig(...) SCLog(SC_LOG_CONFIG, \
+        __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
+#define SCLogPerf(...) SCLog(SC_LOG_PERF, \
+        __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
 
 /**
  * \brief Macro used to log NOTICE messages.
  *
  * \retval ... Takes as argument(s), a printf style format message
  */
-#define SCLogNotice(...) SCLog(SC_LOG_NOTICE, __VA_ARGS__)
+#define SCLogNotice(...) SCLog(SC_LOG_NOTICE, \
+        __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
+#define SCLogNoticeRaw(file, func, line, ... ) SCLog(SC_LOG_NOTICE, \
+        (file), (func), (line), __VA_ARGS__)
 
 /**
  * \brief Macro used to log WARNING messages.
@@ -260,8 +276,12 @@ extern int sc_log_module_cleaned;
  *                  warning message
  * \retval ...      Takes as argument(s), a printf style format message
  */
-#define SCLogWarning(err_code, ...) SCLogErr(SC_LOG_WARNING, err_code, \
-                                          __VA_ARGS__)
+#define SCLogWarning(err_code, ...) SCLogErr(SC_LOG_WARNING, \
+        __FILE__, __FUNCTION__, __LINE__, \
+        err_code, __VA_ARGS__)
+#define SCLogWarningRaw(err_code, file, func, line, ...) \
+    SCLogErr(SC_LOG_WARNING, (file), (func), (line), err_code, __VA_ARGS__)
+
 /**
  * \brief Macro used to log ERROR messages.
  *
@@ -269,8 +289,12 @@ extern int sc_log_module_cleaned;
  *                  error message
  * \retval ...      Takes as argument(s), a printf style format message
  */
-#define SCLogError(err_code, ...) SCLogErr(SC_LOG_ERROR, err_code, \
-                                        __VA_ARGS__)
+#define SCLogError(err_code, ...) SCLogErr(SC_LOG_ERROR, \
+        __FILE__, __FUNCTION__, __LINE__, \
+        err_code, __VA_ARGS__)
+#define SCLogErrorRaw(err_code, file, func, line, ...) SCLogErr(SC_LOG_ERROR, \
+        (file), (func), (line), err_code, __VA_ARGS__)
+
 /**
  * \brief Macro used to log CRITICAL messages.
  *
@@ -278,8 +302,9 @@ extern int sc_log_module_cleaned;
  *                  critical message
  * \retval ...      Takes as argument(s), a printf style format message
  */
-#define SCLogCritical(err_code, ...) SCLogErr(SC_LOG_CRITICAL, err_code, \
-                                           __VA_ARGS__)
+#define SCLogCritical(err_code, ...) SCLogErr(SC_LOG_CRITICAL, \
+        __FILE__, __FUNCTION__, __LINE__, \
+        err_code, __VA_ARGS__)
 /**
  * \brief Macro used to log ALERT messages.
  *
@@ -287,8 +312,9 @@ extern int sc_log_module_cleaned;
  *                  alert message
  * \retval ...      Takes as argument(s), a printf style format message
  */
-#define SCLogAlert(err_code, ...) SCLogErr(SC_LOG_ALERT, err_code, \
-                                        __VA_ARGS__)
+#define SCLogAlert(err_code, ...) SCLogErr(SC_LOG_ALERT, \
+        __FILE__, __FUNCTION__, __LINE__, \
+        err_code, __VA_ARGS__)
 /**
  * \brief Macro used to log EMERGENCY messages.
  *
@@ -296,8 +322,9 @@ extern int sc_log_module_cleaned;
  *                  emergency message
  * \retval ...      Takes as argument(s), a printf style format message
  */
-#define SCLogEmerg(err_code, ...) SCLogErr(SC_LOG_EMERGENCY, err_code, \
-                                          __VA_ARGS__)
+#define SCLogEmerg(err_code, ...) SCLogErr(SC_LOG_EMERGENCY, \
+        __FILE__, __FUNCTION__, __LINE__, \
+        err_code, __VA_ARGS__)
 
 
 /* Avoid the overhead of using the debugging subsystem, in production mode */
@@ -333,7 +360,7 @@ extern int sc_log_module_cleaned;
  *
  * \retval ... Takes as argument(s), a printf style format message
  */
-#define SCLogDebug(...)       SCLog(SC_LOG_DEBUG, __VA_ARGS__)
+#define SCLogDebug(...)       SCLog(SC_LOG_DEBUG, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
 
 /**
  * \brief Macro used to log debug messages on function entry.  Comes under the
