@@ -26,6 +26,7 @@
 
 #include "suricata-common.h"
 #include "config.h"
+#include "util-host-info.h"
 
 #ifndef OS_WIN32
 #include <sys/utsname.h>
@@ -86,6 +87,8 @@ int SCKernelVersionIsAtLeast(int major, int minor)
     kminor = atoi(list[2]);
 
     pcre_free_substring_list(list);
+    pcre_free_study(version_regex_study);
+    pcre_free(version_regex);
 
     if (kmajor > major)
         return 1;

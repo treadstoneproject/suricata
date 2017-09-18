@@ -64,6 +64,7 @@ Flow *FlowAlloc(void)
     }
     memset(f, 0, size);
 
+    /* coverity[missing_lock] */
     FLOW_INITIALIZE(f);
     return f;
 }
@@ -124,7 +125,9 @@ uint8_t FlowGetReverseProtoMapping(uint8_t rproto)
 /* initialize the flow from the first packet
  * we see from it. */
 void FlowInit(Flow *f, const Packet *p)
-{
+{ 
+    printf("Flow initial ...");
+
     SCEnter();
     SCLogDebug("flow %p", f);
 

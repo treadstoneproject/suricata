@@ -27,6 +27,9 @@
 
 #define IPFW_MAX_QUEUE 16
 
+#include <netinet/in.h>
+#include <sys/socket.h>
+
 /* per packet IPFW vars (Not used) */
 typedef struct IPFWPacketVars_
 {
